@@ -22,11 +22,14 @@
     <properties>
         <mybatis.spring.boot.starter.version>3.3.1</mybatis.spring.boot.starter.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
         <java.version>1.8</java.version>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <hutool.version>5.8.26</hutool.version>
         <spring.boot.version>2.7.18</spring.boot.version>
+        <jacoco.version>0.8.7</jacoco.version> <!-- 最后一个支持JDK 1.8的稳定版 -->
     </properties>
 
     <licenses>
@@ -88,7 +91,7 @@
             <dependency>
                 <groupId>org.junit.jupiter</groupId>
                 <artifactId>junit-jupiter</artifactId>
-                <version>5.9.3</version>
+                <version>5.10.2</version>
                 <scope>test</scope>
             </dependency>
             <dependency>
@@ -219,7 +222,29 @@
                 </configuration>
             </plugin>
 
-
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <configuration>
+                    <destFile>${basedir}/target/coverage-reports/jacoco-unit.exec</destFile>
+                    <dataFile>${basedir}/target/coverage-reports/jacoco-unit.exec</dataFile>
+                    <append>true</append>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>pre-unit-test</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                        <configuration>
+                            <!-- 指定JDK 1.8的运行时参数 -->
+                            <propertyName>surefire.argLine</propertyName>
+                            <destFile>${basedir}/target/coverage-reports/jacoco-unit.exec</destFile>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
 </plugins>
     </build>
 

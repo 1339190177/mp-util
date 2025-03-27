@@ -1,5 +1,6 @@
 package com.github.daixuyang.utils;
 
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.core.util.ReflectUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
@@ -10,20 +11,24 @@ import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.extension.conditions.AbstractChainWrapper;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.github.daixuyang.annotation.MpQuery;
 import com.github.daixuyang.constant.QueryStatic;
+import java.util.stream.Collectors;
 import com.github.daixuyang.constant.QueryType;
 import org.apache.logging.log4j.util.Strings;
-import java.util.Arrays;
-import java.util.Objects;
+
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
-import java.util.Objects;
+import java.util.Arrays;
 
 /**
  * @author 小代
  */
-public class MpUtil <T>  extends AbstractChainWrapper<T, SFunction<T, ?>, LambdaQueryChainWrapper<T>, LambdaQueryWrapper<T>> {
+@Slf4j
+public class MpUtil<T> extends AbstractChainWrapper<T, SFunction<T, ?>, LambdaQueryChainWrapper<T>, LambdaQueryWrapper<T>> {
 
     /**
      * 构建实体类selectLambda
@@ -66,12 +71,12 @@ public class MpUtil <T>  extends AbstractChainWrapper<T, SFunction<T, ?>, Lambda
                     continue;
                 }
                 // 过滤非基本类型
-                if(!Tool.isSimpleType(field.getType())){
+                if(!isSimpleType(field.getType())){
                     continue;
                 }
 
                 // 数据表字段
-                String column = QueryStatic.DEFAULT_PREFIX + Tool.humpToLine2(field.getName());
+                String column = QueryStatic.DEFAULT_PREFIX + humpToLine2(field.getName());
 
                 // 值
                 Object value = field.get(o);
@@ -82,7 +87,7 @@ public class MpUtil <T>  extends AbstractChainWrapper<T, SFunction<T, ?>, Lambda
                     String type = annotation.type();
 
                     //优先使用自定义表前缀和字段属性
-                    column = annotation.prefix() + QueryStatic.POINT + Tool.humpToLine2(field.getName());
+                    column = annotation.prefix() + QueryStatic.POINT + humpToLine2(field.getName());
 
                     //优先使用自定义字段
                     column = getField(column, annotation);
@@ -92,7 +97,6 @@ public class MpUtil <T>  extends AbstractChainWrapper<T, SFunction<T, ?>, Lambda
 
                     // 处理排序和分组
                     processOrderAndGroup(wrapper, annotation);
-
 
                     switch (type) {
                         case QueryType.EQ:
@@ -123,7 +127,7 @@ public class MpUtil <T>  extends AbstractChainWrapper<T, SFunction<T, ?>, Lambda
                             wrapper.gt(ObjectUtils.isNotEmpty(value), column, value);
                             break;
                         case QueryType.IS_NULL:
-                            wrapper.isNull(ObjectUtils.isNotEmpty(value), column);
+                            wrapper.isNull(StringUtils.isNotBlank(annotation.defaultValue()), column);
                             break;
                         case QueryType.IS_NOT_NULL:
                             wrapper.isNotNull(ObjectUtils.isNotEmpty(value), column);
@@ -132,7 +136,7 @@ public class MpUtil <T>  extends AbstractChainWrapper<T, SFunction<T, ?>, Lambda
                             wrapper.eq(column, QueryStatic.EMPTY);
                             break;
                         case QueryType.CUSTOMIZE:
-                            wrapper.apply(!Objects.isNull(value), String.valueOf(value));
+                            wrapper.apply(!ObjectUtils.isNull(value), String.valueOf(value));
                             break;
                         case QueryType.CONDITION:
                             if (StringUtils.isNotBlank(annotation.condition())) {
@@ -148,35 +152,39 @@ public class MpUtil <T>  extends AbstractChainWrapper<T, SFunction<T, ?>, Lambda
                 } else {
                     wrapper.eq(ObjectUtils.isNotEmpty(value), column, value);
                 }
-
             }
         } catch (IllegalAccessException e) {
-            e.printStackTrace();
+            throw new RuntimeException("Failed to generate query wrapper", e);
         }
     }
 
     private static void processOrderAndGroup(QueryWrapper<Object> wrapper, MpQuery annotation) {
         // 处理排序
         if (StringUtils.isNotBlank(annotation.orderBy())) {
-            Arrays.stream(annotation.orderBy().split(","))
-                .map(String::trim)
-                .filter(order -> !order.isEmpty())
-                .forEach(order -> {
-                    String[] parts = order.split(":");
-                    if (parts.length == 2) {
-                        wrapper.orderBy(true, "ASC".equalsIgnoreCase(parts[1]), parts[0]);
+            String[] orders = annotation.orderBy().split(",");
+            for (String order : orders) {
+                String trimmed = order.trim();
+                if (trimmed.isEmpty()) continue;
+
+                String[] parts = trimmed.split(":");
+                if (parts.length == 2) {
+                    if ("DESC".equalsIgnoreCase(parts[1])) {
+                        wrapper.orderByDesc(parts[0]);
                     } else {
-                        wrapper.orderByAsc(order);
+                        wrapper.orderByAsc(parts[0]);
                     }
-                });
+                } else {
+                    wrapper.orderByAsc(trimmed);
+                }
+            }
         }
 
         // 处理分组
         if (StringUtils.isNotBlank(annotation.groupBy())) {
-            Arrays.stream(annotation.groupBy().split(","))
-                .map(String::trim)
-                .filter(group -> !group.isEmpty())
-                .forEach(wrapper::groupBy);
+            wrapper.groupBy(Arrays.stream(annotation.groupBy().split(","))
+                    .map(String::trim)
+                    .collect(Collectors.toList())
+            );
         }
     }
 
@@ -185,39 +193,56 @@ public class MpUtil <T>  extends AbstractChainWrapper<T, SFunction<T, ?>, Lambda
 
         String condition = annotation.condition();
         if (annotation.conditionParams().length > 0) {
-            wrapper.apply(condition, Arrays.stream(annotation.conditionParams())
-                .map(param -> param.replace("{value}", value.toString()))
-                .toArray());
+            Object[] params = Arrays.stream(annotation.conditionParams())
+                    .map(param -> {
+                        String strValue = StrUtil.toString(value);
+                        return param.replace("#{value}", strValue);
+                    })
+                    .filter(StrUtil::isNotBlank)
+                    .toArray();
+            wrapper.apply(condition, params);
+        } else {
+            wrapper.apply(condition);
         }
     }
 
-    /**
-     * 获取自定义列
-     *
-     * @param column     条件要构造的列
-     * @param annotation 注解
-     * @return 条件要构造的列
-     */
     private static String getField(String column, MpQuery annotation) {
         // 指定的字段
         String fd = annotation.field();
         if (Strings.isNotBlank(fd)) {
-            column = annotation.prefix() + QueryStatic.POINT + Tool.humpToLine2(fd);
+            column = annotation.prefix() + QueryStatic.POINT + humpToLine2(fd);
         }
         return column;
     }
 
-    /**
-     * 获取注解上的默认值
-     *
-     * @param annotation 注解
-     * @param value 值
-     * @return 默认值
-     */
     private static Object getDefaultValue(MpQuery annotation, Object value) {
         if (Strings.isNotBlank(annotation.defaultValue())) {
-            return annotation.defaultValue();
+            try {
+                String defaultValue = annotation.defaultValue();
+                if (value == null) {
+                    return defaultValue;
+                }
+                if (value instanceof Number) {
+                    return Double.parseDouble(defaultValue);
+                } else if (value instanceof Boolean) {
+                    return Boolean.parseBoolean(defaultValue);
+                }
+                return defaultValue;
+            } catch (Exception e) {
+                log.warn("Failed to parse default value: {}", e.getMessage());
+            }
         }
         return value;
+    }
+
+    private static boolean isSimpleType(Class<?> type) {
+        return type.isPrimitive() ||
+                type == String.class ||
+                Number.class.isAssignableFrom(type) ||
+                type == Boolean.class;
+    }
+
+    private static String humpToLine2(String str) {
+        return str.replaceAll("([A-Z])", "_$1").toLowerCase();
     }
 }
