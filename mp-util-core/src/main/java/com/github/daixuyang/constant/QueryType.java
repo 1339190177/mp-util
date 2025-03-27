@@ -37,4 +37,6 @@ public interface QueryType {
     String IGNORE = "ignore";
 
 
+    /** 条件表达式 */
+    String CONDITION = "condition";
 }

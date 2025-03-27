@@ -44,4 +44,24 @@ public @interface MpQuery {
     String defaultValue() default "";
 
 
+    /**
+     * 自定义条件表达式
+     * @return SQL条件表达式
+     */
+    String condition() default "";
+
+    /**
+     * 排序规则
+     * @return 排序字段及方向
+     */
+    String orderBy() default "";
+
+    /**
+     * 分组字段
+     * @return 分组字段列表
+     */
+    String groupBy() default "";
+
+    String[] conditionParams() default {};
+
 }

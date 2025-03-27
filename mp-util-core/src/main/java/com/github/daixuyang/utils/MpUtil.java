@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.ObjectUtils;
+import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.extension.conditions.AbstractChainWrapper;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
@@ -13,7 +14,8 @@ import com.github.daixuyang.annotation.MpQuery;
 import com.github.daixuyang.constant.QueryStatic;
 import com.github.daixuyang.constant.QueryType;
 import org.apache.logging.log4j.util.Strings;
-
+import java.util.Arrays;
+import java.util.Objects;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.Objects;
@@ -88,6 +90,9 @@ public class MpUtil <T>  extends AbstractChainWrapper<T, SFunction<T, ?>, Lambda
                     //有默认值重写默认值
                     value = getDefaultValue(annotation, value);
 
+                    // 处理排序和分组
+                    processOrderAndGroup(wrapper, annotation);
+
 
                     switch (type) {
                         case QueryType.EQ:
@@ -129,6 +134,11 @@ public class MpUtil <T>  extends AbstractChainWrapper<T, SFunction<T, ?>, Lambda
                         case QueryType.CUSTOMIZE:
                             wrapper.apply(!Objects.isNull(value), String.valueOf(value));
                             break;
+                        case QueryType.CONDITION:
+                            if (StringUtils.isNotBlank(annotation.condition())) {
+                                applyCondition(wrapper, annotation, value);
+                            }
+                            break;
                         case QueryType.IS_NOT_EMPTY:
                             wrapper.ne(column, QueryStatic.EMPTY);
                             break;
@@ -142,6 +152,42 @@ public class MpUtil <T>  extends AbstractChainWrapper<T, SFunction<T, ?>, Lambda
             }
         } catch (IllegalAccessException e) {
             e.printStackTrace();
+        }
+    }
+
+    private static void processOrderAndGroup(QueryWrapper<Object> wrapper, MpQuery annotation) {
+        // 处理排序
+        if (StringUtils.isNotBlank(annotation.orderBy())) {
+            Arrays.stream(annotation.orderBy().split(","))
+                .map(String::trim)
+                .filter(order -> !order.isEmpty())
+                .forEach(order -> {
+                    String[] parts = order.split(":");
+                    if (parts.length == 2) {
+                        wrapper.orderBy(true, "ASC".equalsIgnoreCase(parts[1]), parts[0]);
+                    } else {
+                        wrapper.orderByAsc(order);
+                    }
+                });
+        }
+
+        // 处理分组
+        if (StringUtils.isNotBlank(annotation.groupBy())) {
+            Arrays.stream(annotation.groupBy().split(","))
+                .map(String::trim)
+                .filter(group -> !group.isEmpty())
+                .forEach(wrapper::groupBy);
+        }
+    }
+
+    private static void applyCondition(QueryWrapper<Object> wrapper, MpQuery annotation, Object value) {
+        if (value == null) return;
+
+        String condition = annotation.condition();
+        if (annotation.conditionParams().length > 0) {
+            wrapper.apply(condition, Arrays.stream(annotation.conditionParams())
+                .map(param -> param.replace("{value}", value.toString()))
+                .toArray());
         }
     }
 
